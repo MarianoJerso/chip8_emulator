@@ -1,1 +1,4 @@
 /target
+/roms
+/log.txt
+Cargo.lock
