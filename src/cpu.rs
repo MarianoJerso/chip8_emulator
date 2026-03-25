@@ -1,14 +1,17 @@
-//creamos una constante global para el tamaño de la ram que siempre va a ser el mismo. Es una constante porque simula las limitaciones físicas de una placa de silicio real soldada en una consola.
+// Global constants matching the CHIP-8 hardware specification
 const MEMORY_SIZE: usize = 4096;
-//creamos una constante global para la direccion en memoria en la que siempre vamos a arrancar cuando inicializamos la cpu. Los primeros 512 bytes (de la 0x000 a la 0x1FF) estaban físicamente reservados para que la consola CHIP-8 original guardara su propio sistema operativo básico (y más adelante, las fuentes de las letras). Por eso nuestro Program Counter siempre debe nacer apuntando a la 0x200. Si arranca en la 0, ¡el procesador intentaría "jugar" con el código de su propio sistema operativo y colapsaría!
+
+// The first 512 bytes (0x000–0x1FF) were reserved for the original interpreter firmware.
+// All user programs are loaded starting at 0x200.
 const START_ADDRESS: u16 = 0x200;
 
-// Constantes globales para el tamaño universal de la pantalla de CHIP-8
-const PANTALLA_ANCHO: usize = 64;
-const PANTALLA_ALTO: usize = 32;
+// Standard CHIP-8 display resolution
+const DISPLAY_WIDTH: usize = 64;
+const DISPLAY_HEIGHT: usize = 32;
 
-// Tipografía oficial de la consola de 80 bytes (Representación gráfica de los números del 0 al F)
-const FUNTES_SISTEMA: [u8; 80] = [
+// Built-in system font: 16 hexadecimal glyphs (0–F), each 5 bytes tall.
+// Preloaded into memory at boot, starting at 0x050 per the CHIP-8 convention.
+const FONT_SET: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
     0x20, 0x60, 0x20, 0x20, 0x70, // 1
     0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
@@ -27,297 +30,253 @@ const FUNTES_SISTEMA: [u8; 80] = [
     0xF0, 0x80, 0xF0, 0x80, 0x80  // F
 ];
 
-//creamos una estructura publica para simular nuestro procesador de 8-bit
+/// Emulates the CHIP-8 CPU, memory, display, and I/O subsystems.
 pub struct Cpu {
-    //la ram es un array de integers de 8 bits y puede almacenar hasta 4096 combinaciones
-    ram: [u8; MEMORY_SIZE],
-    //creamos un array de integers de 8 bits con un tamaño maximo de 16, esto es para representar nuestros registros donde vamos a hacer las operaciones(suma, resta, mover en memoria) en ves de la ram
-    v: [u8; 16],   
-    // Registro especial (El dedo pintor) para guardar direcciones de memoria grandes (u16) que apuntan a dibujos o fuentes.
+    /// 4096-byte flat memory address space (RAM + ROM mapped from 0x200)
+    memory: [u8; MEMORY_SIZE],
+    /// 16 general-purpose 8-bit data registers (V0–VF)
+    v: [u8; 16],
+    /// 16-bit Index Register (I): points to memory locations for sprite/font data
     i: u16,
-    // Program Counter (El dedo lector), un puntero que guarda en qué dirección (u16) de la RAM está la instrucción que debemos ejecutar AHORA.
+    /// Program Counter: address of the next instruction to fetch
     pc: u16,
-    //creamos un array para simular nuestro stack que solo puede recordar 16 direcciones de retorno
+    /// 16-level Call Stack for subroutine return addresses
     stack: [u16; 16],
-    //creamos un stack pointer para saber a que direccion tenemos que retornar cuando salgamos del stack
+    /// Stack Pointer: index into the top of the call stack
     sp: u8,
-    // Nuestra "Placa de Video" interna: Una matriz bidimensional (Filas y Columnas) de pixeles
-    // Como solo usamos 0 (negro) y 1 (blanco), usamos u8 para guardar los estados
-    pub pantalla: [[u8; PANTALLA_ANCHO]; PANTALLA_ALTO],
-    // El Joystick Hexadecimal (16 botones). true = presionado, false = suelto.
-    pub teclas: [bool; 16],
-    // Temporizadores de 60Hz. Cuando son mayores a 0, la CPU los resta hasta llegar a 0 automáticamente.
+    /// VRAM: 64x32 pixel display matrix. 0 = off (black), 1 = on (white)
+    pub display: [[u8; DISPLAY_WIDTH]; DISPLAY_HEIGHT],
+    /// I/O port map: boolean state of the 16-key hexadecimal keypad
+    pub keypad: [bool; 16],
+    /// General-purpose hardware timer, decremented at 60 Hz
     pub delay_timer: u8,
+    /// Sound timer: buzzer is active while this value is greater than zero
     pub sound_timer: u8,
 }
 
 impl Cpu {
+    /// Initializes the CPU to its power-on state and preloads the system font into memory.
     pub fn new() -> Self {
         let mut cpu = Self {
-            ram: [0; MEMORY_SIZE],
+            memory: [0; MEMORY_SIZE],
             v: [0; 16],
             i: 0,
             pc: START_ADDRESS,
             stack: [0; 16],
             sp: 0,
-            pantalla: [[0; PANTALLA_ANCHO]; PANTALLA_ALTO],
-            teclas: [false; 16],
+            display: [[0; DISPLAY_WIDTH]; DISPLAY_HEIGHT],
+            keypad: [false; 16],
             delay_timer: 0,
             sound_timer: 0,
         };
 
-        // Cargamos la fuente en el arranque del "Sistema Operativo" (Empieza en la ranura oficial 0x050)
-        for f in 0..80 {
-            cpu.ram[0x050 + f] = FUNTES_SISTEMA[f];
+        // Preload the built-in font set at the conventional address 0x050
+        for (idx, &byte) in FONT_SET.iter().enumerate() {
+            cpu.memory[0x050 + idx] = byte;
         }
 
         cpu
     }
-    // Esta funcion es como "insertar el cartucho" en la consola. Copia el archivo ROM en la RAM empezando en 0x200
-    pub fn cargar_rom(&mut self, datos: &[u8]) {
-        for (i, &byte) in datos.iter().enumerate() {
-            // Evaluamos que no se pase del tamaño de la RAM
-            let direccion = START_ADDRESS as usize + i;
-            if direccion < MEMORY_SIZE {
-                self.ram[direccion] = byte;
+
+    /// Copies ROM bytes into memory starting at 0x200 (the standard program entry point).
+    pub fn load_rom(&mut self, data: &[u8]) {
+        for (idx, &byte) in data.iter().enumerate() {
+            let addr = START_ADDRESS as usize + idx;
+            if addr < MEMORY_SIZE {
+                self.memory[addr] = byte;
             }
         }
     }
 
-    // Restador de relojes mecánicos a ejecutarse siempre a 60 Hz por el bucle central de Windows
-    pub fn decrementar_temporizadores(&mut self) {
+    /// Decrements the hardware timers by one tick. Must be called at exactly 60 Hz.
+    pub fn tick_timers(&mut self) {
         if self.delay_timer > 0 {
             self.delay_timer -= 1;
         }
         if self.sound_timer > 0 {
             if self.sound_timer == 1 {
-                // Acá es donde la placa madre real le mandaría el alto voltaje al zumbador (Buzzer/Speaker)
-                // println!("*BEEP*"); 
+                // Buzzer signal would be emitted here in a full audio implementation
             }
             self.sound_timer -= 1;
         }
     }
 
+    /// Executes one complete Fetch-Decode-Execute CPU cycle.
     pub fn tick(&mut self) {
-        //creamos dos variable de 16 bits, cada una contiene la mitad de una instruccion que almacenamos previamente en la ram y cada una de estas la convertimos en al tipo u16 para su posterior union
-        let byte_alto = self.ram[self.pc as usize] as u16; 
-        let byte_bajo = self.ram[(self.pc + 1) as usize] as u16;
-        //Unimos las dos partes de la instruccion utilizando operadores de bits
-        let opcode = (byte_alto << 8) | byte_bajo;
+        // --- FETCH ---
+        // Read two consecutive bytes from memory and merge them into a 16-bit opcode
+        let high_byte = self.memory[self.pc as usize] as u16;
+        let low_byte  = self.memory[(self.pc + 1) as usize] as u16;
+        let opcode    = (high_byte << 8) | low_byte;
 
-        // Comentamos la bitácora de ejecución para que corra ligero a 600Hz
-        // println!("El procesador acaba de leer la orden: {:04X}", opcode);
-
+        // Advance the program counter before execution (each instruction is 2 bytes)
         self.pc += 2;
 
-        let primer_digito = (opcode & 0xF000) >> 12;
+        // --- DECODE ---
+        // Isolate the most significant nibble to identify the instruction family
+        let nibble = (opcode & 0xF000) >> 12;
 
-        match primer_digito {
+        // --- EXECUTE ---
+        match nibble {
             0x0 => {
-                // Hay dos operaciones que empiezan con 0x0
                 if opcode == 0x00E0 {
-                    // Opcode 00E0: Clear Screen
-                    self.pantalla = [[0; PANTALLA_ANCHO]; PANTALLA_ALTO];
+                    // 00E0: CLS — Clear the display
+                    self.display = [[0; DISPLAY_WIDTH]; DISPLAY_HEIGHT];
                 } else if opcode == 0x00EE {
-                    // Opcode 00EE: Return (Retornar de una subrutina)
-                    // Bajamos en el ascensor (disminuimos el puntero de la pila)
+                    // 00EE: RET — Return from subroutine
                     self.sp -= 1;
-                    // Le preguntamos a la pila en qué dirección de memoria nos quedamos la última vez
                     self.pc = self.stack[self.sp as usize];
-                } else {
-                    // println!("  ↳ [IGNORADO] Código asociado a mainframes viejas: {:04X}", opcode);
                 }
             },
 
             0x1 => {
-                let direccion = opcode & 0x0FFF; 
-                
-                self.pc = direccion; 
-            },
-
-            0x3 => {
-                let x = ((opcode & 0x0F00) >> 8) as usize;
-                let nn = (opcode & 0x00FF) as u8;
-                // Opcode 3XNN: Skip next instruction if VX == NN
-                // Es literalmente un "if (v[x] == nn)". Si es cierto, nos salteamos la siguiente línea de código sumándole 2 extra al avance del Program Counter.
-                if self.v[x] == nn {
-                    self.pc += 2;
-                }
-            },
-
-            0x4 => {
-                let x = ((opcode & 0x0F00) >> 8) as usize;
-                let nn = (opcode & 0x00FF) as u8;
-                // Opcode 4XNN: Skip next instruction if VX != NN
-                // Este es el "if (v[x] != nn)".
-                if self.v[x] != nn {
-                    self.pc += 2;
-                }
-            },
-
-            0x5 => {
-                let x = ((opcode & 0x0F00) >> 8) as usize;
-                let y = ((opcode & 0x00F0) >> 4) as usize;
-                // Opcode 5XY0: Skip next instruction if VX == VY
-                // Acá comparamos dos cajas de registros entre ellas ("if v[x] == v[y]")
-                if self.v[x] == self.v[y] {
-                    self.pc += 2;
-                }
+                // 1NNN: JP addr — Unconditional jump to address NNN
+                let addr = opcode & 0x0FFF;
+                self.pc = addr;
             },
 
             0x2 => {
-                // Opcode 2NNN: Call Subroutine (Llamar a Función)
-                // Primero guardamos nuestra posición de memoria actual en el estante de la Pila...
+                // 2NNN: CALL addr — Push current PC onto the stack and jump to NNN
                 self.stack[self.sp as usize] = self.pc;
-                // Subimos en el ascensor, indicando que hay una página de memoria nueva guardada
                 self.sp += 1;
-                // Finalmente, saltamos hacia la nueva función usando el salto incondicional común
-                let direccion = opcode & 0x0FFF;
-                self.pc = direccion;
+                let addr = opcode & 0x0FFF;
+                self.pc = addr;
+            },
+
+            0x3 => {
+                // 3XNN: SE Vx, byte — Skip next instruction if Vx == NN
+                let x  = ((opcode & 0x0F00) >> 8) as usize;
+                let nn = (opcode & 0x00FF) as u8;
+                if self.v[x] == nn { self.pc += 2; }
+            },
+
+            0x4 => {
+                // 4XNN: SNE Vx, byte — Skip next instruction if Vx != NN
+                let x  = ((opcode & 0x0F00) >> 8) as usize;
+                let nn = (opcode & 0x00FF) as u8;
+                if self.v[x] != nn { self.pc += 2; }
+            },
+
+            0x5 => {
+                // 5XY0: SE Vx, Vy — Skip next instruction if Vx == Vy
+                let x = ((opcode & 0x0F00) >> 8) as usize;
+                let y = ((opcode & 0x00F0) >> 4) as usize;
+                if self.v[x] == self.v[y] { self.pc += 2; }
             },
 
             0x6 => {
-                // Buscamos cuál es el registro X aislando el segundo dígito
-                let x = ((opcode & 0x0F00) >> 8) as usize;
-                // Buscamos el valor NN aislando los dos últimos dígitos
+                // 6XNN: LD Vx, byte — Load immediate value NN into register Vx
+                let x  = ((opcode & 0x0F00) >> 8) as usize;
                 let nn = (opcode & 0x00FF) as u8;
-                
-                // println!("  ↳ [EJECUTANDO] Guardando el valor {} en el registro V{:X}...", nn, x);
                 self.v[x] = nn;
             },
 
             0x7 => {
-                let x = ((opcode & 0x0F00) >> 8) as usize;
+                // 7XNN: ADD Vx, byte — Add NN to Vx (wraps on overflow, no carry flag)
+                let x  = ((opcode & 0x0F00) >> 8) as usize;
                 let nn = (opcode & 0x00FF) as u8;
-                
-                // Usamos wrapping_add porque si el registro llega a 255 y le sumamos 1, 
-                // en CHIP-8 debe volver a 0 sin romper el emulador
                 self.v[x] = self.v[x].wrapping_add(nn);
             },
 
             0x8 => {
-                let x = ((opcode & 0x0F00) >> 8) as usize;
-                let y = ((opcode & 0x00F0) >> 4) as usize;
-                let operacion = opcode & 0x000F; // El último dígito define la matemática a usar
+                // 8XYN: ALU operations — sub-opcode N selects the operation
+                let x      = ((opcode & 0x0F00) >> 8) as usize;
+                let y      = ((opcode & 0x00F0) >> 4) as usize;
+                let sub_op = opcode & 0x000F;
 
-                match operacion {
-                    0x0 => self.v[x] = self.v[y], // Set directo
-                    0x1 => self.v[x] |= self.v[y], // OR lógico (Bits)
-                    0x2 => self.v[x] &= self.v[y], // AND lógico (Bits)
-                    0x3 => self.v[x] ^= self.v[y], // XOR lógico (Bits)
-                    
+                match sub_op {
+                    0x0 => self.v[x] = self.v[y],        // LD:  Vx = Vy
+                    0x1 => self.v[x] |= self.v[y],        // OR:  Vx |= Vy
+                    0x2 => self.v[x] &= self.v[y],        // AND: Vx &= Vy
+                    0x3 => self.v[x] ^= self.v[y],        // XOR: Vx ^= Vy
+
                     0x4 => {
-                        // Suma con Acarreo (Overflow). 
-                        // Rust tiene funciones puras nativas (`overflowing_add`) que nos devuelven
-                        // tanto el resultado truncado como un booleano avisando si explotó el límite de u8 (255)
-                        let (suma, se_paso) = self.v[x].overflowing_add(self.v[y]);
-                        self.v[x] = suma;
-                        // Regla CHIP-8: Si se pasó de 255, VF = 1. Si no, VF = 0.
-                        self.v[0xF] = if se_paso { 1 } else { 0 }; 
+                        // ADD: Vx += Vy. VF = 1 on unsigned overflow, 0 otherwise.
+                        let (result, overflow) = self.v[x].overflowing_add(self.v[y]);
+                        self.v[x]    = result;
+                        self.v[0xF] = if overflow { 1 } else { 0 };
                     },
-                    
+
                     0x5 => {
-                        // Resta con "Préstamo" (Borrow/Underflow). Ocurre cuando restamos hasta dejarlo en negativo.
-                        let (resta, cayo_abajo_de_cero) = self.v[x].overflowing_sub(self.v[y]);
-                        self.v[x] = resta;
-                        // Regla de CHIP-8 "al revés": Si NO cayó por debajo de cero (si x >= y), VF = 1.
-                        self.v[0xF] = if cayo_abajo_de_cero { 0 } else { 1 };
+                        // SUB: Vx -= Vy. VF = 1 if Vx >= Vy (no borrow), 0 if borrow occurred.
+                        let (result, underflow) = self.v[x].overflowing_sub(self.v[y]);
+                        self.v[x]    = result;
+                        self.v[0xF] = if underflow { 0 } else { 1 };
                     },
-                    
+
                     0x6 => {
-                        // Shift Right (Desplazar los bits hacia la derecha, dividiendo por 2 básicamente)
-                        // Atrapamos el bit que se "cayó" por el borde derecho y lo guardamos en VF
+                        // SHR: Logical shift right by 1. VF = evicted LSB.
                         self.v[0xF] = self.v[x] & 1;
                         self.v[x] >>= 1;
                     },
-                    
+
                     0x7 => {
-                        // Resta Inversa (VY - VX en vez de VX - VY)
-                        let (resta, cayo_abajo_de_cero) = self.v[y].overflowing_sub(self.v[x]);
-                        self.v[x] = resta;
-                        self.v[0xF] = if cayo_abajo_de_cero { 0 } else { 1 };
+                        // SUBN: Vx = Vy - Vx. VF = 1 if Vy >= Vx (no borrow).
+                        let (result, underflow) = self.v[y].overflowing_sub(self.v[x]);
+                        self.v[x]    = result;
+                        self.v[0xF] = if underflow { 0 } else { 1 };
                     },
-                    
+
                     0xE => {
-                        // Shift Left (Desplazar los bits hacia la izquierda, multiplicando por 2)
-                        // Atrapamos el bit supremo que se "cayó" por la izquierda y va a VF
+                        // SHL: Logical shift left by 1. VF = evicted MSB.
                         self.v[0xF] = (self.v[x] >> 7) & 1;
                         self.v[x] <<= 1;
                     },
-                    
-                    _ => {
-                        // Instrucción no implementada o error en la ROM
-                        // println!("ALU Error: Matemática desconocida {:04X}", opcode);
-                    }
+
+                    _ => {} // Reserved / undefined
                 }
             },
 
             0x9 => {
+                // 9XY0: SNE Vx, Vy — Skip next instruction if Vx != Vy
                 let x = ((opcode & 0x0F00) >> 8) as usize;
                 let y = ((opcode & 0x00F0) >> 4) as usize;
-                // Opcode 9XY0: Skip next instruction if VX != VY
-                // Igual que la familia 5, pero negando ("if v[x] != v[y]")
-                if self.v[x] != self.v[y] {
-                    self.pc += 2;
-                }
+                if self.v[x] != self.v[y] { self.pc += 2; }
             },
-            
+
             0xA => {
-                let direccion = opcode & 0x0FFF;
-                // println!("  ↳ [EJECUTANDO] Guardando la dirección {:03X} en el dedo pintor 'I'...", direccion);
-                
-                self.i = direccion;
+                // ANNN: LD I, addr — Set the Index Register to NNN
+                let addr = opcode & 0x0FFF;
+                self.i = addr;
             },
 
             0xC => {
-                let x = ((opcode & 0x0F00) >> 8) as usize;
+                // CXNN: RND Vx, byte — Vx = random_byte AND NN
+                let x  = ((opcode & 0x0F00) >> 8) as usize;
                 let nn = (opcode & 0x00FF) as u8;
-                let numero_random = rand::random::<u8>();
-                // CXNN: Crea un numero aleatorio y lo "enmascara" con el parámetro NN usando AND Lógico.
-                self.v[x] = numero_random & nn;
+                let rand_byte = rand::random::<u8>();
+                self.v[x] = rand_byte & nn;
             },
 
             0xD => {
-                // aislar registros
-                let x = ((opcode & 0x0F00) >> 8) as usize;
-                let y = ((opcode & 0x00F0) >> 4) as usize;
-                // 'N' indica cuántas filas de alto tiene el sprite (cada fila es de 1 byte/8 pixeles)
-                let altura = (opcode & 0x000F) as u16; 
-                
-                // Las coordenadas de origen base se leen de los registros V correspondientes
-                // Si la coordenada excede el ancho/alto, envuelve la pantalla con modulo (%)
-                let coord_x = self.v[x] as usize % PANTALLA_ANCHO;
-                let coord_y = self.v[y] as usize % PANTALLA_ALTO;
-                
-                // println!("  ↳ [EJECUTANDO] DXYN: Dibujando bloque en X: {}, Y: {}, Alto: {}", coord_x, coord_y, altura);
+                // DXYN: DRW Vx, Vy, nibble — Draw an N-row sprite at (Vx, Vy).
+                // Sprites are XOR'd onto the display. VF = 1 if any pixel is erased (collision).
+                let x      = ((opcode & 0x0F00) >> 8) as usize;
+                let y      = ((opcode & 0x00F0) >> 4) as usize;
+                let height = (opcode & 0x000F) as u16;
 
-                // Inicializamos el registro de colision (VF) en 0 antes de dibujar
-                self.v[0xF] = 0;
+                // Wrap origin coordinates to screen bounds
+                let origin_x = self.v[x] as usize % DISPLAY_WIDTH;
+                let origin_y = self.v[y] as usize % DISPLAY_HEIGHT;
 
-                // Leemos las N filas del sprite desde la RAM (empezando en la dirección que marca el dedo 'I')
-                for fila in 0..altura {
-                    let byte_sprite = self.ram[(self.i + fila) as usize];
+                self.v[0xF] = 0; // Reset collision flag
 
-                    // Cada fila tiene exactamente 8 bits (1 byte = 8 pixeles de ancho fijo)
-                    for columna in 0..8 {
-                        // Extraemos el valor del pixel individual (0 o 1) empujando los bits y pasando una mascara
-                        let pixel = (byte_sprite >> (7 - columna)) & 1;
+                for row in 0..height {
+                    let sprite_byte = self.memory[(self.i + row) as usize];
+
+                    for col in 0..8usize {
+                        let pixel = (sprite_byte >> (7 - col)) & 1;
 
                         if pixel == 1 {
-                            // Calculamos en que celda de la matriz va este pixel especifico
-                            let pixel_x = coord_x + columna;
-                            let pixel_y = coord_y + fila as usize;
+                            let pixel_x = origin_x + col;
+                            let pixel_y = origin_y + row as usize;
 
-                            // En CHIP-8 clasico, los pixeles se "cortan" si tocan el borde (clipping)
-                            if pixel_x < PANTALLA_ANCHO && pixel_y < PANTALLA_ALTO {
-                                // Si el pixel de la pantalla ya estaba prendido (1), registrar colisión
-                                if self.pantalla[pixel_y][pixel_x] == 1 {
-                                    self.v[0xF] = 1;
+                            // Clip pixels that exceed the display boundary
+                            if pixel_x < DISPLAY_WIDTH && pixel_y < DISPLAY_HEIGHT {
+                                if self.display[pixel_y][pixel_x] == 1 {
+                                    self.v[0xF] = 1; // Collision detected
                                 }
-
-                                // El operador XOR (^=) invierte el estado de la pantalla.
-                                // Si estaba en 0 pasa a 1 (lo dibuja). Si estaba en 1 pasa a 0 (lo borra).
-                                self.pantalla[pixel_y][pixel_x] ^= 1;
+                                self.display[pixel_y][pixel_x] ^= 1; // XOR pixel
                             }
                         }
                     }
@@ -325,108 +284,92 @@ impl Cpu {
             },
 
             0xE => {
-                let x = ((opcode & 0x0F00) >> 8) as usize;
-                let operacion_teclado = opcode & 0x00FF; // Aislamos los últimos dos dígitos
+                // Keypad-conditional skip instructions
+                let x      = ((opcode & 0x0F00) >> 8) as usize;
+                let key_op = opcode & 0x00FF;
 
-                match operacion_teclado {
+                match key_op {
                     0x9E => {
-                        // EX9E: Skip if Key Pressed
-                        // Va al Array Fisico booleano y si dice 'true', salta un renglón
-                        if self.teclas[self.v[x] as usize] {
-                            self.pc += 2;
-                        }
+                        // EX9E: SKP Vx — Skip if key[Vx] is pressed
+                        if self.keypad[self.v[x] as usize] { self.pc += 2; }
                     },
                     0xA1 => {
-                        // EXA1: Skip if Key NOT Pressed
-                        if !self.teclas[self.v[x] as usize] {
-                            self.pc += 2;
-                        }
+                        // EXA1: SKNP Vx — Skip if key[Vx] is not pressed
+                        if !self.keypad[self.v[x] as usize] { self.pc += 2; }
                     },
-                    _ => {
-                        // println!("Error Teclado NO implementado: {:04X}", opcode);
-                    }
+                    _ => {}
                 }
             },
 
             0xF => {
-                let x = ((opcode & 0x0F00) >> 8) as usize;
-                let final_opcode = opcode & 0x00FF;
+                // Miscellaneous system instructions (timers, font, BCD, memory)
+                let x      = ((opcode & 0x0F00) >> 8) as usize;
+                let sub_op = opcode & 0x00FF;
 
-                match final_opcode {
+                match sub_op {
                     0x07 => {
-                        // FX07: Leer el Delay Timer y guardarlo en un registro
+                        // FX07: LD Vx, DT — Read delay timer into Vx
                         self.v[x] = self.delay_timer;
                     },
                     0x0A => {
-                        // FX0A: Congelar la CPU hasta recibir una pulsación de tecla y guardarla en VX
-                        let mut se_apreto = false;
-                        for btn in 0..16 {
-                            if self.teclas[btn] {
-                                self.v[x] = btn as u8;
-                                se_apreto = true;
+                        // FX0A: LD Vx, K — Halt execution until a key is pressed.
+                        // Implementation: rewind PC to re-execute this instruction next tick.
+                        let mut key_pressed = false;
+                        for btn in 0..16usize {
+                            if self.keypad[btn] {
+                                self.v[x]    = btn as u8;
+                                key_pressed = true;
                                 break;
                             }
                         }
-                        // Truco Maestro de Emuladores: Si no hay tecla apretada, anulamos el avance natural del lector de memoria
-                        // restándole 2 al Program Counter, obligando así al juego a colgarse en un Bucle Infinito leyendo
-                        // esta misma línea hasta que alguien accione el control.
-                        if !se_apreto {
-                            self.pc -= 2;
+                        if !key_pressed {
+                            self.pc -= 2; // Stall: repeat this instruction next cycle
                         }
                     },
                     0x15 => {
-                        // FX15: Setear/Pisarlo al Delay Timer con el número de un registro
+                        // FX15: LD DT, Vx — Set delay timer to Vx
                         self.delay_timer = self.v[x];
                     },
                     0x18 => {
-                        // FX18: Setear el temporizador de Sonido
+                        // FX18: LD ST, Vx — Set sound timer to Vx
                         self.sound_timer = self.v[x];
                     },
                     0x1E => {
-                        // FX1E: Sumarle VX al dedo pintor 'I'
+                        // FX1E: ADD I, Vx — Advance the Index Register by Vx
                         self.i += self.v[x] as u16;
                     },
                     0x29 => {
-                        // FX29: Apuntar el dedo 'I' al lugar de la RAM donde está guardado el dibujo de la letra que queremos
-                        // Como instalamos la fuente estática en 0x050 y cada letra mide 5 bytes, la fórmula es simplemente multiplicar por 5.
+                        // FX29: LD F, Vx — Point I to the font sprite for digit Vx
+                        // Font base at 0x050; each glyph is 5 bytes wide
                         self.i = 0x050 + (self.v[x] as u16 * 5);
                     },
                     0x33 => {
-                        // FX33: Separación Digital (Convertir un número Hexadecimal a BCD Decimal Puro: Centenas, Decenas, Unidades)
-                        // Sirve para que el juego sepa cómo escribirte el Puntuaje "254" en la pantalla de la TV.
-                        // Y lo guarda físicamente en la memoria RAM en las posiciones de las coordenadas I, I+1 e I+2
-                        let valor = self.v[x];
-                        let centenas = valor / 100;
-                        let decenas = (valor / 10) % 10;
-                        let unidades = valor % 10;
-                        
-                        self.ram[self.i as usize] = centenas;
-                        self.ram[(self.i + 1) as usize] = decenas;
-                        self.ram[(self.i + 2) as usize] = unidades;
+                        // FX33: LD B, Vx — Store BCD representation of Vx at I, I+1, I+2
+                        let value    = self.v[x];
+                        let hundreds = value / 100;
+                        let tens     = (value / 10) % 10;
+                        let units    = value % 10;
+                        self.memory[self.i as usize]       = hundreds;
+                        self.memory[(self.i + 1) as usize] = tens;
+                        self.memory[(self.i + 2) as usize] = units;
                     },
                     0x55 => {
-                        // FX55: Guardado Masivo (Dump) de la vida del procesador a la RAM
-                        // Permítimos que el juego escupa de un golpe el estado de múltiples registros a la vez en la placa madre
-                        for iteracion in 0..=x {
-                            self.ram[self.i as usize + iteracion] = self.v[iteracion];
+                        // FX55: LD [I], Vx — Dump registers V0..Vx into memory at I
+                        for idx in 0..=x {
+                            self.memory[self.i as usize + idx] = self.v[idx];
                         }
                     },
                     0x65 => {
-                        // FX65: Carga Masiva (Load) leyendo desde la Memoria RAM y escribiendo adentro el procesador
-                        // Ideal para los puntos de control o "Cargar Nivel" rápido de Save States.
-                        for iteracion in 0..=x {
-                            self.v[iteracion] = self.ram[self.i as usize + iteracion];
+                        // FX65: LD Vx, [I] — Load registers V0..Vx from memory at I
+                        for idx in 0..=x {
+                            self.v[idx] = self.memory[self.i as usize + idx];
                         }
                     },
-                    _ => {
-                        // println!("Error Opcode de Memoria F Desconocido: {:04X}", opcode);
-                    }
+                    _ => {} // Reserved / undefined
                 }
             },
 
-            _ => {
-                // println!("  ↳ [ERROR O NO IMPLEMENTADO] Instrucción desconocida: {:04X}", opcode);
-            }
+            _ => {} // Unknown instruction family — silently ignored
         }
     }
 }
