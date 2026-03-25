@@ -1,48 +1,90 @@
-# 🕹️ CHIP-8 Rust Emulator
+# CHIP-8 Emulator — Rust
 
-A cycle-accurate, custom-built CHIP-8 Emulator programmed entirely from scratch in Rust. This repository demonstrates low-level systems programming, hardware reverse-engineering, and computer architecture principles.
+A cycle-accurate, fully custom CHIP-8 emulator implemented from scratch in Rust.
+Built without external CPU orchestration libraries, simulating the complete hardware architecture of the original 1977 COSMAC VIP interpreter.
 
-## ✨ Features
-- **Accurate CPU Architecture**: Complete simulation of Memory Address Space (4096 bytes), 16 8-bit Data Registers (V0-VF), 16-level memory Stack pointer, and the 16-bit Index Register (I).
-- **ALU (Arithmetic Logic Unit)**: Exact implementation of the CHIP-8 logic engine (Opcode 8 family), natively handling overflow/underflow carry flags (VF).
-- **Native Graphical Rendering**: 64x32 monochrome hardware-accelerated display matrix bound to a strict 60 FPS hardware loop powered by `minifb`.
-- **Keyboard Engine**: Mathematical mapping of the original 1970s 16-key Hexadecimal pad to standard QWERTY boolean input arrays.
-- **Mechanical Timers**: Precise 60Hz Delay and Sound timers uncoupled from the CPU fetch cycle.
-- **Memory Routing**: Extensible mass memory-dumping and binary loading (FX55/FX65) implemented in the internal state machine.
+> Emulador CHIP-8 de ciclo exacto, implementado completamente desde cero en Rust.
+> Construido sin librerías de orquestación externas, simulando la arquitectura completa del intérprete COSMAC VIP de 1977.
 
-## 🚀 Getting Started
+---
 
-### Prerequisites
-- [Rust & Cargo](https://rustup.rs/) (The compiler and package manager)
+## Features / Características
 
-### Compilation
-Clone this repository to your local machine and compile the robust executable:
+- Complete Fetch-Decode-Execute CPU cycle with a 4096-byte memory address space.
+- 16 general-purpose 8-bit registers (V0–VF), 16-bit Index Register (I), and Program Counter (PC).
+- 16-level Call Stack with Stack Pointer for subroutine management.
+- Full ALU implementation: arithmetic, carry flags, bitwise logic, and shift operations.
+- 64x32 VRAM matrix with XOR sprite rendering and hardware collision detection (VF register).
+- Hexadecimal keypad mapped to QWERTY input via I/O port polling at 60 Hz.
+- 60 Hz hardware-accurate Delay and Sound Timers decoupled from the CPU fetch cycle.
+- System font ROM (80 bytes) preloaded in memory at boot (0x050), supporting BCD display.
+- Mass memory dump and load (FX55/FX65) for register persistence.
+- Hardware-accelerated 60 FPS window via `minifb` with 16x pixel scaling.
+- Cryptographically seeded random number generator via the `rand` crate (CXNN).
+
+---
+
+## Requirements / Requisitos
+
+- [Rust & Cargo](https://rustup.rs/)
+
+---
+
+## Build & Run / Compilar y Ejecutar
+
 ```bash
-git clone https://github.com/YourUsername/chip8-emulator.git
-cd chip8-emulator
+git clone https://github.com/MarianoJerso/chip8_emulator.git
+cd chip8_emulator
 cargo build --release
+cargo run --release -- path/to/game.ch8
 ```
 
-### Running a Cartridge
-To play, you will need a `.ch8` or `.rom` cartridge file (such as Pong, Tetris, or Space Invaders) which can be legally legally downloaded from public Domain sources.
+### Example / Ejemplo
 
-Run the emulator passing the path to the game as a terminal argument:
 ```bash
-cargo run --release -- roms/pong.ch8
+cargo run --release -- "roms/games/Space Invaders [David Winter].ch8"
 ```
 
-## 🎮 Control Mapping
-The CHIP-8 originally used a 16-key hexadecimal keypad (0-F). It is fully mapped to the left-side of your QWERTY keyboard as follows:
+---
 
-| Original CHIP-8 | QWERTY Mapping |
-|---------|---------|
+## Control Mapping / Mapeo de Controles
+
+The original CHIP-8 used a 16-key hexadecimal keypad (0–F), mapped as follows:
+
+| CHIP-8 Keypad | QWERTY Keyboard |
+|---|---|
 | 1 2 3 C | 1 2 3 4 |
 | 4 5 6 D | Q W E R |
 | 7 8 9 E | A S D F |
 | A 0 B F | Z X C V |
 
-## 🛠️ Technical Architecture Details
-This emulator does not rely on third-party orchestration logic. The entire `Fetch-Decode-Execute` cycle was constructed from ground zero:
-1. **Fetch**: Reads 2 consecutive physical bytes from the `u8` memory vector layout depending on the `Program Counter`.
-2. **Decode**: Merges both bits into a contiguous 16-bit Opcode and slices hexadecimal variables using rigorous Bitwise `AND/OR` masking logic (`& 0x0F00 >> 8`).
-3. **Execute**: Branches into the concrete Hardware emulation subroutines by leveraging Rust's impenetrable `match` exhaustive pattern system over all 34 historical Opcodes.
+---
+
+## Architecture / Arquitectura
+
+The emulator implements the complete hardware stack of the CHIP-8 platform:
+
+| Component | Implementation |
+|---|---|
+| CPU | `Cpu` struct with full ISA (34 opcodes) |
+| Memory | `[u8; 4096]` address space |
+| Registers | `[u8; 16]` general purpose + `u16` Index Register |
+| Stack | `[u16; 16]` + Stack Pointer for CALL/RET |
+| VRAM | `[[u8; 64]; 32]` pixel matrix with XOR rendering |
+| Input | `[bool; 16]` I/O port boolean array updated at 60 Hz |
+| Timers | Hardware 60 Hz Delay and Sound counters |
+| Display | `minifb` hardware-accelerated window at 16x scale |
+
+---
+
+## Technical Notes / Notas Técnicas
+
+- **Carry Flags**: overflow and underflow arithmetic uses Rust's native `.overflowing_add()` and `.overflowing_sub()` to populate the VF collision register without undefined behavior.
+- **Sprite Flicker**: The XOR rendering model faithfully replicates the visual flickering of the original hardware, caused by the erase-then-redraw cycle required by the CHIP-8 architecture.
+- **Timer Decoupling**: The CPU runs at approximately 600 Hz (10 ticks per frame), while hardware timers decrement once per frame at 60 Hz, replicating the independent quartz crystal oscillator of the original board.
+
+---
+
+## License / Licencia
+
+MIT License. See `LICENSE` for details.
