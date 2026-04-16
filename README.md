@@ -51,15 +51,17 @@ If you download ROMs from GitHub, make sure to download the **Raw** file. A real
 
 ### How to get games (ROMs)
 
-To avoiding downloading HTML files by error, use these `curl` commands to download the `.ch8` binaries directly:
+To avoid downloading HTML files by error, use these `curl` commands. 
+
+**Note for Windows users:** If you are using PowerShell, you must use `curl.exe` (instead of `curl`) and wrap the URL in double quotes:
 
 - **Pong**:
   ```bash
-  curl -L -o pong.ch8 https://github.com/kripod/chip8-roms/raw/master/games/Pong%20%28alt%29.ch8
+  curl.exe -L -o pong.ch8 "https://github.com/kripod/chip8-roms/raw/master/games/Pong%20%28alt%29.ch8"
   ```
 - **Tetris**:
   ```bash
-  curl -L -o tetris.ch8 https://github.com/kripod/chip8-roms/raw/master/games/Tetris%20%5BFran%20Dachille%2C%201991%5D.ch8
+  curl.exe -L -o tetris.ch8 "https://github.com/kripod/chip8-roms/raw/master/games/Tetris%20%5BFran%20Dachille%2C%201991%5D.ch8"
   ```
 - **Space Invaders**:
   ```bash
@@ -113,6 +115,16 @@ The emulator implements the complete hardware stack of the CHIP-8 platform:
 - **Carry Flags**: overflow and underflow arithmetic uses Rust's native `.overflowing_add()` and `.overflowing_sub()` to populate the VF collision register without undefined behavior.
 - **Sprite Flicker**: The XOR rendering model faithfully replicates the visual flickering of the original hardware, caused by the erase-then-redraw cycle required by the CHIP-8 architecture.
 - **Timer Decoupling**: The CPU runs at approximately 600 Hz (10 ticks per frame), while hardware timers decrement once per frame at 60 Hz, replicating the independent quartz crystal oscillator of the original board.
+
+---
+
+## Troubleshooting
+
+### "Stack Overflow" or CPU Error
+If the emulator panics with a "Stack Overflow" or "Unknown Opcode" message, it is almost certain that the file you loaded is **not a valid CHIP-8 ROM**.
+- **Check the file size**: A real ROM is usually 200–500 bytes. If it's over 100KB, it's likely an HTML page.
+- **Check the command output**: Look for the "ROM loaded successfully" message. It should show a very small byte count.
+- **Windows Users**: Make sure to use `curl.exe` and wrap the URL in quotes to avoid downloading a corrupted file via PowerShell's default alias.
 
 ---
 
