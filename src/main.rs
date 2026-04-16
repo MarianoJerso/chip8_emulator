@@ -24,7 +24,15 @@ fn main() {
         panic!("Failed to read ROM file: {}", e);
     });
 
+    // Simple validation for common "wrong download" error (HTML instead of binary)
+    if rom.starts_with(b"<!DOC") || rom.starts_with(b"<html") {
+        eprintln!("ERROR: The file '{}' appears to be an HTML page, not a valid CHIP-8 ROM.", rom_path);
+        eprintln!("Suggestion: Download the 'Raw' version of the file from GitHub.");
+        return;
+    }
+
     cpu.load_rom(&rom);
+    println!("ROM loaded successfully ({} bytes).", rom.len());
 
     let mut window = Window::new(
         "CHIP-8 Emulator — Rust",
@@ -38,7 +46,7 @@ fn main() {
         panic!("Failed to create window: {}", e);
     });
 
-    window.limit_update_rate(Some(std::time::Duration::from_micros(16600)));
+    window.set_target_fps(60);
 
     let mut display_buffer: Vec<u32> = vec![0; DISPLAY_WIDTH * DISPLAY_HEIGHT];
 

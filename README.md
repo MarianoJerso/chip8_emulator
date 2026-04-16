@@ -40,10 +40,44 @@ cargo run --release -- path/to/game.ch8
 ```
 
 ### Example / Ejemplo
-
+Si usás las ROMs incluidas en el submódulo (recomendado):
 ```bash
-cargo run --release -- "roms/games/Space Invaders [David Winter].ch8"
+cargo run --release -- roms/games/Pong.ch8
 ```
+
+---
+
+## Games & ROMs / Juegos y ROMs
+
+### Importante: Evitar archivos HTML
+Si descargas ROMs de GitHub, asegúrate de descargar el archivo **Raw**. Un archivo `.ch8` real suele pesar menos de 1KB. Si pesa más de 100KB, probablemente sea una página HTML descargada por error.
+
+### Cómo obtener juegos (ROMs)
+
+Para evitar descargar archivos HTML por error, utilizá estos comandos `curl` que bajan el binario `.ch8` directamente:
+
+- **Pong**:
+  ```bash
+  curl -L -o pong.ch8 https://github.com/kripod/chip8-roms/raw/master/games/Pong%20%28alt%29.ch8
+  ```
+- **Tetris**:
+  ```bash
+  curl -L -o tetris.ch8 https://github.com/kripod/chip8-roms/raw/master/games/Tetris%20%5BFran%20Dachille%2C%201991%5D.ch8
+  ```
+- **Space Invaders**:
+  ```bash
+  curl -L -o invaders.ch8 https://github.com/kripod/chip8-roms/raw/master/games/Space%20Invaders%20%5BDavid%20Winter%5D.ch8
+  ```
+- **Breakout**:
+  ```bash
+  curl -L -o breakout.ch8 https://github.com/kripod/chip8-roms/raw/master/games/Breakout%20%5BCarmelo%20Cortez%2C%201979%5D.ch8
+  ```
+
+### Repositorios recomendados:
+- [Kripod / Chip8-ROMs](https://github.com/kripod/chip8-roms)
+- [Mirrors / Chip-8-ROMs](https://github.com/JohnEarnest/Chip-8/tree/master/roms)
+
+---
 
 ---
 

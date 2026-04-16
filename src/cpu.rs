@@ -124,8 +124,12 @@ impl Cpu {
                     self.display = [[0; DISPLAY_WIDTH]; DISPLAY_HEIGHT];
                 } else if opcode == 0x00EE {
                     // 00EE: RET — Return from subroutine
-                    self.sp -= 1;
-                    self.pc = self.stack[self.sp as usize];
+                    if self.sp > 0 {
+                        self.sp -= 1;
+                        self.pc = self.stack[self.sp as usize];
+                    } else {
+                        eprintln!("[ERROR] Stack Underflow at PC: {:#04X}", self.pc);
+                    }
                 }
             },
 
@@ -137,10 +141,14 @@ impl Cpu {
 
             0x2 => {
                 // 2NNN: CALL addr — Push current PC onto the stack and jump to NNN
-                self.stack[self.sp as usize] = self.pc;
-                self.sp += 1;
-                let addr = opcode & 0x0FFF;
-                self.pc = addr;
+                if self.sp < 16 {
+                    self.stack[self.sp as usize] = self.pc;
+                    self.sp += 1;
+                    let addr = opcode & 0x0FFF;
+                    self.pc = addr;
+                } else {
+                    panic!("[CRITICAL] Stack Overflow at PC: {:#04X}. The game is likely corrupt or has an infinite recursion.", self.pc);
+                }
             },
 
             0x3 => {
@@ -205,9 +213,9 @@ impl Cpu {
                     },
 
                     0x6 => {
-                        // SHR: Logical shift right by 1. VF = evicted LSB.
-                        self.v[0xF] = self.v[x] & 1;
-                        self.v[x] >>= 1;
+                        // SHR: Logical shift right. Original behavior: Vx = Vy >> 1. VF = LSB.
+                        self.v[0xF] = self.v[y] & 1;
+                        self.v[x] = self.v[y] >> 1;
                     },
 
                     0x7 => {
@@ -218,9 +226,9 @@ impl Cpu {
                     },
 
                     0xE => {
-                        // SHL: Logical shift left by 1. VF = evicted MSB.
-                        self.v[0xF] = (self.v[x] >> 7) & 1;
-                        self.v[x] <<= 1;
+                        // SHL: Logical shift left. Original behavior: Vx = Vy << 1. VF = MSB.
+                        self.v[0xF] = (self.v[y] >> 7) & 1;
+                        self.v[x] = self.v[y] << 1;
                     },
 
                     _ => {} // Reserved / undefined
@@ -232,6 +240,12 @@ impl Cpu {
                 let x = ((opcode & 0x0F00) >> 8) as usize;
                 let y = ((opcode & 0x00F0) >> 4) as usize;
                 if self.v[x] != self.v[y] { self.pc += 2; }
+            },
+
+            0xB => {
+                // BNNN: JP V0, addr — Jump to address NNN + V0
+                let addr = (opcode & 0x0FFF) + self.v[0] as u16;
+                self.pc = addr;
             },
 
             0xA => {
@@ -369,7 +383,9 @@ impl Cpu {
                 }
             },
 
-            _ => {} // Unknown instruction family — silently ignored
+            _ => {
+                eprintln!("[DEBUG] Unknown Opcode: {:#04X} at PC: {:#04X}. Check if your ROM is valid.", opcode, self.pc - 2);
+            }
         }
     }
 }
