@@ -3,12 +3,9 @@
 A cycle-accurate, fully custom CHIP-8 emulator implemented from scratch in Rust.
 Built without external CPU orchestration libraries, simulating the complete hardware architecture of the original 1977 COSMAC VIP interpreter.
 
-> Emulador CHIP-8 de ciclo exacto, implementado completamente desde cero en Rust.
-> Construido sin librerías de orquestación externas, simulando la arquitectura completa del intérprete COSMAC VIP de 1977.
-
 ---
 
-## Features / Características
+## Features
 
 - Complete Fetch-Decode-Execute CPU cycle with a 4096-byte memory address space.
 - 16 general-purpose 8-bit registers (V0–VF), 16-bit Index Register (I), and Program Counter (PC).
@@ -24,13 +21,13 @@ Built without external CPU orchestration libraries, simulating the complete hard
 
 ---
 
-## Requirements / Requisitos
+## Requirements
 
 - [Rust & Cargo](https://rustup.rs/)
 
 ---
 
-## Build & Run / Compilar y Ejecutar
+## Build & Run
 
 ```bash
 git clone https://github.com/MarianoJerso/chip8_emulator.git
@@ -39,22 +36,22 @@ cargo build --release
 cargo run --release -- path/to/game.ch8
 ```
 
-### Example / Ejemplo
-Si usás las ROMs incluidas en el submódulo (recomendado):
+### Example
+If you use the ROMs included in the submodule (recommended):
 ```bash
 cargo run --release -- roms/games/Pong.ch8
 ```
 
 ---
 
-## Games & ROMs / Juegos y ROMs
+## Games & ROMs
 
-### Importante: Evitar archivos HTML
-Si descargas ROMs de GitHub, asegúrate de descargar el archivo **Raw**. Un archivo `.ch8` real suele pesar menos de 1KB. Si pesa más de 100KB, probablemente sea una página HTML descargada por error.
+### Important: Avoid HTML files
+If you download ROMs from GitHub, make sure to download the **Raw** file. A real `.ch8` binary usually weighs less than 1KB. If it weighs more than 100KB, it's likely an HTML page downloaded by mistake.
 
-### Cómo obtener juegos (ROMs)
+### How to get games (ROMs)
 
-Para evitar descargar archivos HTML por error, utilizá estos comandos `curl` que bajan el binario `.ch8` directamente:
+To avoiding downloading HTML files by error, use these `curl` commands to download the `.ch8` binaries directly:
 
 - **Pong**:
   ```bash
@@ -73,7 +70,7 @@ Para evitar descargar archivos HTML por error, utilizá estos comandos `curl` qu
   curl -L -o breakout.ch8 https://github.com/kripod/chip8-roms/raw/master/games/Breakout%20%5BCarmelo%20Cortez%2C%201979%5D.ch8
   ```
 
-### Repositorios recomendados:
+### Recommended Repositories:
 - [Kripod / Chip8-ROMs](https://github.com/kripod/chip8-roms)
 - [Mirrors / Chip-8-ROMs](https://github.com/JohnEarnest/Chip-8/tree/master/roms)
 
@@ -81,7 +78,7 @@ Para evitar descargar archivos HTML por error, utilizá estos comandos `curl` qu
 
 ---
 
-## Control Mapping / Mapeo de Controles
+## Control Mapping
 
 The original CHIP-8 used a 16-key hexadecimal keypad (0–F), mapped as follows:
 
@@ -94,7 +91,7 @@ The original CHIP-8 used a 16-key hexadecimal keypad (0–F), mapped as follows:
 
 ---
 
-## Architecture / Arquitectura
+## Architecture
 
 The emulator implements the complete hardware stack of the CHIP-8 platform:
 
@@ -111,7 +108,7 @@ The emulator implements the complete hardware stack of the CHIP-8 platform:
 
 ---
 
-## Technical Notes / Notas Técnicas
+## Technical Notes
 
 - **Carry Flags**: overflow and underflow arithmetic uses Rust's native `.overflowing_add()` and `.overflowing_sub()` to populate the VF collision register without undefined behavior.
 - **Sprite Flicker**: The XOR rendering model faithfully replicates the visual flickering of the original hardware, caused by the erase-then-redraw cycle required by the CHIP-8 architecture.
@@ -119,6 +116,6 @@ The emulator implements the complete hardware stack of the CHIP-8 platform:
 
 ---
 
-## License / Licencia
+## License
 
 MIT License. See `LICENSE` for details.
