@@ -24,8 +24,17 @@ fn main() {
         panic!("Failed to read ROM file: {}", e);
     });
 
-    // Simple validation for common "wrong download" error (HTML instead of binary)
-    if rom.starts_with(b"<!DOC") || rom.starts_with(b"<html") {
+    // 1. Check size: Chip-8 ROMs must fit in 4KB total memory minus 512 bytes for interpreter
+    if rom.len() > (4096 - 0x200) {
+        eprintln!("ERROR: ROM file is too large ({} bytes). Max size is 3584 bytes.", rom.len());
+        eprintln!("This is likely an HTML page or a corrupt file, not a valid CHIP-8 ROM.");
+        return;
+    }
+
+    // 2. Check for HTML signatures (ignoring leading whitespace)
+    let rom_str = String::from_utf8_lossy(&rom);
+    let trimmed = rom_str.trim_start();
+    if trimmed.starts_with("<!DOC") || trimmed.starts_with("<html") || trimmed.starts_with("<!DOCTYPE") {
         eprintln!("ERROR: The file '{}' appears to be an HTML page, not a valid CHIP-8 ROM.", rom_path);
         eprintln!("Suggestion: Download the 'Raw' version of the file from GitHub.");
         return;
