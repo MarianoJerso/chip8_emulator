@@ -27,19 +27,27 @@ Built without external CPU orchestration libraries, simulating the complete hard
 
 ---
 
-## Build & Run
+## Quick Start (One-Click Run)
 
+The easiest way to test the emulator is using the included interactive scripts. We have included 4 built-in ROMs (Tetris, Fishie, Conway's Life, and Jumping X and O) to demonstrate the accuracy of the emulator without needing to download anything else.
+
+**Windows:**
 ```bash
-git clone https://github.com/MarianoJerso/chip8_emulator.git
-cd chip8_emulator
-cargo build --release
-cargo run --release -- path/to/game.ch8
+.\run.bat
 ```
 
-### Example
-If you use the ROMs included in the submodule (recommended):
+**Linux/Mac:**
 ```bash
-cargo run --release -- roms/games/Pong.ch8
+./run.sh
+```
+
+These scripts will present an interactive menu, automatically compile the emulator in release mode, and load the selected ROM.
+
+### Manual Execution
+
+If you want to run a custom ROM manually:
+```bash
+cargo run --release -- path/to/game.ch8
 ```
 
 ---
